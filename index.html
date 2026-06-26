@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DWA緊急対策室 レベル判定ツール</title>
+<style>
+  :root{
+    --bg:#0f1620;
+    --panel:#18222f;
+    --panel2:#1f2c3c;
+    --line:#2c3b4f;
+    --ink:#e8eef5;
+    --muted:#90a2b8;
+    --accent:#4ea1ff;
+    --l1:#3a9d6e;
+    --l2:#d8b13a;
+    --l3:#e8862e;
+    --l4:#e0552c;
+    --l5:#c02b4a;
+    --mono:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,'Hiragino Kaku Gothic ProN','Noto Sans JP',sans-serif;
+    line-height:1.6;padding:16px;max-width:760px;margin:0 auto;
+  }
+  header{padding:8px 0 16px;border-bottom:1px solid var(--line);margin-bottom:18px;}
+  h1{font-size:1.15rem;margin:0 0 4px;letter-spacing:.02em;}
+  .sub{color:var(--muted);font-size:.8rem;}
+  .verdict{
+    border-radius:14px;padding:20px;margin-bottom:18px;
+    background:var(--panel);border:1px solid var(--line);
+    position:relative;overflow:hidden;
+  }
+  .verdict .barcol{position:absolute;left:0;top:0;bottom:0;width:6px;background:var(--muted);}
+  .verdict.l1 .barcol{background:var(--l1);} .verdict.l2 .barcol{background:var(--l2);}
+  .verdict.l3 .barcol{background:var(--l3);} .verdict.l4 .barcol{background:var(--l4);}
+  .verdict.l5 .barcol{background:var(--l5);}
+  .vlabel{font-size:.72rem;color:var(--muted);letter-spacing:.14em;text-transform:uppercase;}
+  .vlevel{font-size:1.9rem;font-weight:800;margin:2px 0 2px;display:flex;align-items:baseline;gap:10px;}
+  .vlevel .num{font-family:var(--mono);}
+  .vlevel.l1{color:var(--l1);} .vlevel.l2{color:var(--l2);} .vlevel.l3{color:var(--l3);}
+  .vlevel.l4{color:var(--l4);} .vlevel.l5{color:var(--l5);}
+  .vaction{font-size:.92rem;color:var(--ink);margin-top:6px;}
+  .vwhy{font-size:.82rem;color:var(--muted);margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);}
+  .vwhy b{color:var(--ink);font-weight:600;}
+  .updated{font-size:.72rem;color:var(--muted);margin-top:12px;font-family:var(--mono);}
+
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:18px;}
+  @media(max-width:560px){.grid{grid-template-columns:1fr;}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;}
+  .card h2{font-size:.8rem;margin:0 0 10px;color:var(--muted);letter-spacing:.08em;font-weight:600;display:flex;justify-content:space-between;align-items:center;}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--muted);display:inline-block;}
+  .dot.ok{background:var(--l1);} .dot.warn{background:var(--l3);} .dot.bad{background:var(--l5);} .dot.load{background:var(--accent);}
+  .reading{font-size:1.35rem;font-weight:700;font-family:var(--mono);}
+  .reading.small{font-size:1rem;}
+  .meta{font-size:.78rem;color:var(--muted);margin-top:4px;}
+  .pill{display:inline-block;font-size:.72rem;padding:2px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted);margin-top:8px;}
+
+  .manual{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:18px;}
+  .manual h2{font-size:.85rem;margin:0 0 4px;}
+  .manual p.hint{font-size:.78rem;color:var(--muted);margin:0 0 12px;}
+  .chk{display:flex;align-items:flex-start;gap:10px;padding:8px 0;border-top:1px solid var(--line);cursor:pointer;}
+  .chk:first-of-type{border-top:none;}
+  .chk input{margin-top:4px;width:18px;height:18px;flex-shrink:0;accent-color:var(--accent);cursor:pointer;}
+  .chk .txt{font-size:.86rem;}
+  .chk .lv{font-size:.7rem;color:var(--muted);font-family:var(--mono);}
+  .chk .lv.t3{color:var(--l3);} .chk .lv.t4{color:var(--l4);} .chk .lv.t5{color:var(--l5);}
+
+  .links{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px;}
+  .links a{font-size:.78rem;color:var(--accent);text-decoration:none;border:1px solid var(--line);border-radius:8px;padding:6px 11px;background:var(--panel);}
+  .links a:hover{border-color:var(--accent);}
+
+  .btn{background:var(--accent);color:#06121f;border:none;border-radius:9px;padding:10px 16px;font-size:.85rem;font-weight:700;cursor:pointer;}
+  .btn:active{transform:translateY(1px);}
+  .btnrow{display:flex;gap:10px;align-items:center;margin-bottom:18px;}
+
+  .scale{margin-bottom:18px;}
+  .scale h2{font-size:.8rem;color:var(--muted);margin:0 0 8px;letter-spacing:.08em;}
+  .scrow{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;font-size:.8rem;margin-bottom:4px;background:var(--panel);border:1px solid transparent;}
+  .scrow.active{border-color:var(--accent);background:var(--panel2);}
+  .scrow .tag{font-family:var(--mono);font-weight:700;width:54px;flex-shrink:0;}
+  .scrow.r1 .tag{color:var(--l1);} .scrow.r2 .tag{color:var(--l2);} .scrow.r3 .tag{color:var(--l3);}
+  .scrow.r4 .tag{color:var(--l4);} .scrow.r5 .tag{color:var(--l5);}
+  .scrow .desc{color:var(--muted);font-size:.76rem;}
+  footer{font-size:.72rem;color:var(--muted);border-top:1px solid var(--line);padding-top:14px;margin-top:8px;}
+  .disclaimer{background:rgba(192,43,74,.08);border:1px solid rgba(192,43,74,.3);border-radius:8px;padding:10px 12px;font-size:.76rem;color:var(--ink);margin-bottom:18px;}
+</style>
+</head>
+<body>
+<header>
+  <h1>🛡 DWA緊急対策室 レベル判定ツール</h1>
+  <div class="sub">気象庁・地震・津波の情報から「現段階の参考レベル」を自動算出します</div>
+</header>
+
+<div class="disclaimer">
+  ⚠️ これは<b>参考値</b>です。最終的な対応レベルの判断は、各情報の詳細と現場状況を確認のうえ責任者が決定してください。地震・津波は自動取得しますが、気象警報は下のチェック項目で手動確認してください。
+</div>
+
+<div class="verdict" id="verdict">
+  <div class="barcol"></div>
+  <div class="vlabel">現段階の参考レベル</div>
+  <div class="vlevel" id="vlevel"><span class="num">--</span><span>判定中…</span></div>
+  <div class="vaction" id="vaction">地震・津波情報を取得しています。</div>
+  <div class="vwhy" id="vwhy"></div>
+  <div class="updated" id="updated"></div>
+</div>
+
+<div class="btnrow">
+  <button class="btn" id="reloadBtn" onclick="runAssessment()">🔄 最新情報で再判定</button>
+  <span class="meta" id="loadingState"></span>
+</div>
+
+<div class="grid">
+  <div class="card">
+    <h2>最大震度（直近24時間）<span class="dot load" id="quakeDot"></span></h2>
+    <div class="reading" id="quakeReading">取得中…</div>
+    <div class="meta" id="quakeMeta"></div>
+  </div>
+  <div class="card">
+    <h2>津波情報<span class="dot load" id="tsunamiDot"></span></h2>
+    <div class="reading small" id="tsunamiReading">取得中…</div>
+    <div class="meta" id="tsunamiMeta"></div>
+  </div>
+</div>
+
+<div class="manual">
+  <h2>気象警報の確認（手動チェック）</h2>
+  <p class="hint">気象庁の警報・注意報ページで対象地域を確認し、該当するものにチェックを入れてください。最も高いレベルが判定に反映されます。</p>
+  <div id="weatherChecks"></div>
+</div>
+
+<div class="links">
+  <a href="https://www.jma.go.jp/bosai/warning/" target="_blank" rel="noopener">気象庁 警報・注意報 →</a>
+  <a href="https://www.jma.go.jp/bosai/map.html#contents=river" target="_blank" rel="noopener">キキクル（危険度分布）→</a>
+  <a href="https://www.jma.go.jp/bosai/#pattern=default" target="_blank" rel="noopener">気象庁トップ →</a>
+  <a href="https://www.data.jma.go.jp/multi/quake/index.html" target="_blank" rel="noopener">地震情報 →</a>
+</div>
+
+<div class="scale">
+  <h2>DWA 5段階対応レベル（気象庁基準準拠）</h2>
+  <div class="scrow r1" id="row1"><span class="tag">Lv.1</span><div><b>平常監視</b><div class="desc">震度3以下／津波予報なし／注意報レベル。対策室は設置せず通常運用。</div></div></div>
+  <div class="scrow r2" id="row2"><span class="tag">Lv.2</span><div><b>注意体制</b><div class="desc">震度4／津波予報（海面変動）／警報（大雨・暴風・波浪・高潮等）／台風接近。待機準備・注意喚起。</div></div></div>
+  <div class="scrow r3" id="row3"><span class="tag">Lv.3</span><div><b>警戒体制｜対策室設置</b><div class="desc">震度5弱〜5強／津波注意報／危険警報（土砂・氾濫）／記録的短時間大雨。対策室設置・緊急モード・X発信。</div></div></div>
+  <div class="scrow r4" id="row4"><span class="tag">Lv.4</span><div><b>非常体制</b><div class="desc">震度6弱〜6強／津波警報／特別警報（大雨・暴風・高潮等）／氾濫発生。24時間体制・全員招集。</div></div></div>
+  <div class="scrow r5" id="row5"><span class="tag">Lv.5</span><div><b>最高警戒体制</b><div class="desc">震度7／大津波警報／南海トラフ臨時情報／複数地域同時特別警報。本部長体制・全リソース集中。</div></div></div>
+</div>
+
+<footer>
+  データ出典：P2P地震情報 API（気象庁発表に基づく地震・津波）、気象庁 防災情報。<br>
+  判定基準は2026年5月再編後の気象庁・防災気象情報体系（特別警報＝レベル5相当／危険警報＝レベル4相当）に準拠。<br>
+  本ツールはDWA防災情報センターの内部運用補助用です。
+</footer>
+
+<script>
+// ====== 気象警報チェック項目（気象庁2026年再編基準） ======
+// level = DWAレベルへの寄与。最も高いものが採用される。
+const WEATHER_ITEMS = [
+  { id:'w_tokubetsu', label:'特別警報（大雨・土砂災害・氾濫・高潮・暴風・波浪・大雪・暴風雪）', level:4, tier:'t4', note:'命の危険・直ちに安全確保（警戒レベル5相当）' },
+  { id:'w_hanran_hassei', label:'氾濫発生情報／河川の氾濫が発生', level:4, tier:'t4', note:'' },
+  { id:'w_kiken', label:'危険警報（土砂災害・氾濫危険）／土砂災害警戒情報', level:3, tier:'t3', note:'避難指示相当（警戒レベル4相当）' },
+  { id:'w_kiroku', label:'記録的短時間大雨情報／線状降水帯発生', level:3, tier:'t3', note:'' },
+  { id:'w_keiho', label:'警報（大雨・暴風・波浪・高潮・大雪・暴風雪）', level:2, tier:'', note:'重大な災害のおそれ（警戒レベル3相当）' },
+  { id:'w_taifu', label:'台風が接近中（暴風域に入る予報）', level:2, tier:'', note:'' },
+];
+
+function buildWeatherChecks(){
+  const box = document.getElementById('weatherChecks');
+  box.innerHTML = WEATHER_ITEMS.map(function(it){
+    const tierCls = it.tier ? (' '+it.tier) : '';
+    const lvTxt = it.level >= 4 ? 'Lv.4' : it.level === 3 ? 'Lv.3' : 'Lv.2';
+    return '<label class="chk">'
+      + '<input type="checkbox" id="'+it.id+'" onchange="runAssessment()">'
+      + '<div class="txt">'+it.label
+      + (it.note ? '<div class="lv'+tierCls+'">'+it.note+'</div>' : '')
+      + '</div>'
+      + '<div class="lv'+tierCls+'" style="margin-left:auto;flex-shrink:0;">→'+lvTxt+'</div>'
+      + '</label>';
+  }).join('');
+}
+
+function weatherMaxLevel(){
+  let max = 0, reasons = [];
+  WEATHER_ITEMS.forEach(function(it){
+    const el = document.getElementById(it.id);
+    if(el && el.checked){
+      if(it.level > max) max = it.level;
+      reasons.push(it.label);
+    }
+  });
+  return { level:max, reasons:reasons };
+}
+
+// ====== 地震：P2Pのscale値 → 震度 → DWAレベル ======
+// scale: 10=1,20=2,30=3,40=4,45=5弱,50=5強,55=6弱,60=6強,70=7
+function scaleToShindoText(s){
+  const m={10:'1',20:'2',30:'3',40:'4',45:'5弱',50:'5強',55:'6弱',60:'6強',70:'7'};
+  return m[s] || (s>0 ? String(Math.floor(s/10)) : '--');
+}
+function quakeScaleToLevel(scale){
+  if(scale >= 70) return 5;        // 震度7
+  if(scale >= 55) return 4;        // 震度6弱・6強
+  if(scale >= 45) return 3;        // 震度5弱・5強
+  if(scale >= 40) return 2;        // 震度4
+  return 1;                        // 震度3以下
+}
+
+// ====== 津波 → DWAレベル ======
+function tsunamiToLevel(grade){
+  // P2P tsunami: grade = MajorWarning(大津波警報)/Warning(警報)/Watch(注意報)/Forecast(予報)
+  if(!grade) return { level:1, text:'発表なし' };
+  const g = String(grade);
+  if(g === 'MajorWarning') return { level:5, text:'大津波警報' };
+  if(g === 'Warning')      return { level:4, text:'津波警報' };
+  if(g === 'Watch')        return { level:3, text:'津波注意報' };
+  if(g === 'Forecast')     return { level:2, text:'津波予報（海面変動）' };
+  return { level:1, text:'発表なし' };
+}
+
+const LEVEL_INFO = {
+  1:{ name:'平常監視', action:'緊急対策室は設置せず、通常体制で監視・情報更新を継続します。', cls:'l1' },
+  2:{ name:'注意体制', action:'対策室を待機準備とし、ポップアップで注意喚起。責任者へ第一報を入れます。', cls:'l2' },
+  3:{ name:'警戒体制｜緊急対策室 設置', action:'緊急対策室を設置。サイトを緊急モードに切替え、X発信を開始します。', cls:'l3' },
+  4:{ name:'非常体制', action:'対策室を24時間体制に拡大し全員招集。安否・避難・ライフライン情報を集約します。', cls:'l4' },
+  5:{ name:'最高警戒体制', action:'本部長体制を敷き全リソースを災害情報発信に集中。交代制で長期運用に備えます。', cls:'l5' },
+};
+
+let _lastQuake = null, _lastTsunami = null;
+
+async function fetchJSON(url, timeout){
+  const ctrl = new AbortController();
+  const tid = setTimeout(function(){ ctrl.abort(); }, timeout || 9000);
+  try{
+    const r = await fetch(url, { signal:ctrl.signal, cache:'no-store' });
+    clearTimeout(tid);
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    return await r.json();
+  } finally { clearTimeout(tid); }
+}
+
+async function loadQuake(){
+  const dot = document.getElementById('quakeDot');
+  const reading = document.getElementById('quakeReading');
+  const meta = document.getElementById('quakeMeta');
+  try{
+    const data = await fetchJSON('https://api.p2pquake.net/v2/jma/quake?limit=30', 9000);
+    const since = Date.now() - 24*60*60*1000;
+    let best = null;
+    (data||[]).forEach(function(item){
+      if(!item || item.code !== 551) return; // 551 = 震源・震度情報
+      const eq = item.earthquake || {};
+      const t = new Date(String(item.time||'').replace(/\//g,'-').replace(' ','T')+'+09:00').getTime();
+      if(isNaN(t) || t < since) return;
+      const scale = (eq.maxScale!=null) ? eq.maxScale : -1;
+      if(!best || scale > best.scale){
+        best = { scale:scale, place:(eq.hypocenter&&eq.hypocenter.name)||'震源不明',
+                 mag:(eq.hypocenter&&eq.hypocenter.magnitude), time:item.time };
+      }
+    });
+    if(!best || best.scale < 10){
+      reading.textContent = '震度1以上なし';
+      meta.textContent = '直近24時間に有感地震の記録なし';
+      dot.className = 'dot ok';
+      _lastQuake = { level:1, scale:0 };
+      return;
+    }
+    const sh = scaleToShindoText(best.scale);
+    reading.textContent = '震度 ' + sh;
+    let m = best.place;
+    if(best.mag!=null && best.mag>=0) m += '／M' + best.mag;
+    meta.textContent = m;
+    const lv = quakeScaleToLevel(best.scale);
+    dot.className = 'dot ' + (lv>=4?'bad':lv>=3?'warn':lv>=2?'warn':'ok');
+    _lastQuake = { level:lv, scale:best.scale, place:best.place, shindo:sh };
+  }catch(e){
+    reading.textContent = '取得失敗';
+    meta.textContent = '通信エラー：手動で気象庁の地震情報を確認してください';
+    dot.className = 'dot bad';
+    _lastQuake = null;
+  }
+}
+
+async function loadTsunami(){
+  const dot = document.getElementById('tsunamiDot');
+  const reading = document.getElementById('tsunamiReading');
+  const meta = document.getElementById('tsunamiMeta');
+  try{
+    const data = await fetchJSON('https://api.p2pquake.net/v2/jma/tsunami?limit=3', 9000);
+    let active = null;
+    (data||[]).forEach(function(item){
+      if(!item || item.cancelled) return;
+      if(active) return;
+      let maxGrade = null;
+      (item.areas||[]).forEach(function(a){
+        const order = {MajorWarning:4,Warning:3,Watch:2,Forecast:1};
+        if(!maxGrade || (order[a.grade]||0) > (order[maxGrade]||0)) maxGrade = a.grade;
+      });
+      if(maxGrade) active = maxGrade;
+    });
+    const t = tsunamiToLevel(active);
+    reading.textContent = t.text;
+    meta.textContent = active ? '津波情報が発表中です' : '現在、津波の心配はありません';
+    dot.className = 'dot ' + (t.level>=5?'bad':t.level>=4?'bad':t.level>=3?'warn':t.level>=2?'warn':'ok');
+    _lastTsunami = t;
+  }catch(e){
+    reading.textContent = '取得失敗';
+    meta.textContent = '通信エラー：手動で気象庁の津波情報を確認してください';
+    dot.className = 'dot bad';
+    _lastTsunami = null;
+  }
+}
+
+function renderVerdict(){
+  const w = weatherMaxLevel();
+  const candidates = [];
+  if(_lastQuake)   candidates.push({ src:'地震', level:_lastQuake.level,
+      detail:_lastQuake.scale ? ('最大震度'+_lastQuake.shindo+'（'+_lastQuake.place+'）') : '震度1以上なし' });
+  if(_lastTsunami) candidates.push({ src:'津波', level:_lastTsunami.level, detail:_lastTsunami.text });
+  if(w.level>0)    candidates.push({ src:'気象', level:w.level, detail:w.reasons.join('、') });
+
+  let level = 1, drivers = [];
+  candidates.forEach(function(c){ if(c.level > level) level = c.level; });
+  candidates.forEach(function(c){ if(c.level === level && level > 1) drivers.push(c); });
+
+  const info = LEVEL_INFO[level];
+  const vEl = document.getElementById('verdict');
+  const lvEl = document.getElementById('vlevel');
+  vEl.className = 'verdict ' + info.cls;
+  lvEl.className = 'vlevel ' + info.cls;
+  lvEl.innerHTML = '<span class="num">Lv.'+level+'</span><span>'+info.name+'</span>';
+  document.getElementById('vaction').textContent = info.action;
+
+  let why = '';
+  if(level === 1){
+    why = '<b>判定根拠：</b>地震・津波・気象のいずれも対策室設置の基準に達していません。'
+        + (candidates.length ? '（'+candidates.map(function(c){return c.src+'：'+c.detail;}).join(' / ')+'）' : '');
+  } else {
+    why = '<b>引き上げ要因：</b>' + drivers.map(function(d){ return d.src+'＝'+d.detail; }).join(' / ');
+    const others = candidates.filter(function(c){ return c.level < level; });
+    if(others.length){
+      why += '<br><span style="color:var(--muted)">その他：'
+           + others.map(function(c){ return c.src+'（Lv.'+c.level+'：'+c.detail+'）'; }).join(' / ') + '</span>';
+    }
+  }
+  document.getElementById('vwhy').innerHTML = why;
+
+  // スケール表のハイライト
+  for(let i=1;i<=5;i++){
+    const r = document.getElementById('row'+i);
+    if(r) r.classList.toggle('active', i===level);
+  }
+}
+
+async function runAssessment(){
+  const btn = document.getElementById('reloadBtn');
+  const ls = document.getElementById('loadingState');
+  btn.disabled = true; ls.textContent = '取得中…';
+  await Promise.all([loadQuake(), loadTsunami()]);
+  renderVerdict();
+  const now = new Date();
+  document.getElementById('updated').textContent =
+    '最終判定：' + now.toLocaleString('ja-JP',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
+  btn.disabled = false; ls.textContent = '';
+}
+
+buildWeatherChecks();
+runAssessment();
+</script>
+</body>
+</html>

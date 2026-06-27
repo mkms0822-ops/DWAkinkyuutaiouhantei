@@ -199,14 +199,6 @@ function scaleToShindoText(s){
   const m={10:'1',20:'2',30:'3',40:'4',45:'5弱',50:'5強',55:'6弱',60:'6強',70:'7'};
   return m[s] || (s>0 ? String(Math.floor(s/10)) : '--');
 }
-function quakeScaleToLevel(scale){
-  if(scale >= 70) return 5;        // 震度7
-  if(scale >= 55) return 4;        // 震度6弱・6強
-  if(scale >= 45) return 3;        // 震度5弱・5強
-  if(scale >= 40) return 2;        // 震度4
-  return 1;                        // 震度3以下
-}
-
 // ====== 津波 → DWAレベル ======
 function tsunamiToLevel(grade){
   // P2P tsunami: grade = MajorWarning(大津波警報)/Warning(警報)/Watch(注意報)/Forecast(予報)
@@ -240,40 +232,103 @@ async function fetchJSON(url, timeout){
   } finally { clearTimeout(tid); }
 }
 
+// ====== 地震：余震を加味した総合判定 ======
+// 設計：
+//  ・メイン地震（直近24hの最大震度）からベースのDWAレベルを算出
+//  ・発生からの経過時間でレベルを減衰（直後ほど高く、時間が経つほど下がる）
+//  ・ただし直近に余震（有感地震）が続いていれば減衰を緩め、警戒を維持
+// これにより「大地震直後で余震多発＝警戒継続」「時間が経ち余震も収束＝平常へ」
+// を客観的に表現する。警報・津波が無いのに前日の地震でLv.3が出続ける問題を解消。
+function quakeBaseLevel(scale){
+  if(scale >= 70) return 5;   // 震度7
+  if(scale >= 55) return 4;   // 震度6弱・6強
+  if(scale >= 45) return 3;   // 震度5弱・5強
+  if(scale >= 40) return 2;   // 震度4
+  return 1;                   // 震度3以下
+}
+
 async function loadQuake(){
   const dot = document.getElementById('quakeDot');
   const reading = document.getElementById('quakeReading');
   const meta = document.getElementById('quakeMeta');
   try{
-    const data = await fetchJSON('https://api.p2pquake.net/v2/jma/quake?limit=30', 9000);
-    const since = Date.now() - 24*60*60*1000;
+    const data = await fetchJSON('https://api.p2pquake.net/v2/jma/quake?limit=50', 9000);
+    const now = Date.now();
+    const since = now - 24*60*60*1000;
     let best = null;
+    const recentList = []; // 直近の有感地震（時刻・震度）
+
     (data||[]).forEach(function(item){
       if(!item || item.code !== 551) return; // 551 = 震源・震度情報
       const eq = item.earthquake || {};
       const t = new Date(String(item.time||'').replace(/\//g,'-').replace(' ','T')+'+09:00').getTime();
       if(isNaN(t) || t < since) return;
       const scale = (eq.maxScale!=null) ? eq.maxScale : -1;
-      if(!best || scale > best.scale){
-        best = { scale:scale, place:(eq.hypocenter&&eq.hypocenter.name)||'震源不明',
-                 mag:(eq.hypocenter&&eq.hypocenter.magnitude), time:item.time };
+      if(scale < 10) return; // 震度1未満（無感）は除外
+      recentList.push({ t:t, scale:scale });
+      if(!best || scale > best.scale || (scale === best.scale && t > best.t)){
+        best = { scale:scale, t:t, place:(eq.hypocenter&&eq.hypocenter.name)||'震源不明',
+                 mag:(eq.hypocenter&&eq.hypocenter.magnitude) };
       }
     });
-    if(!best || best.scale < 10){
+
+    if(!best){
       reading.textContent = '震度1以上なし';
       meta.textContent = '直近24時間に有感地震の記録なし';
       dot.className = 'dot ok';
       _lastQuake = { level:1, scale:0 };
       return;
     }
+
+    // ── ベースレベル（メイン地震の規模） ──
+    const base = quakeBaseLevel(best.scale);
     const sh = scaleToShindoText(best.scale);
+
+    // ── 経過時間による減衰 ──
+    // メイン地震からの経過時間(時間)。直後は満点、時間が経つほどレベルを下げる。
+    const ageH = (now - best.t) / 3600000;
+
+    // ── 余震活動の評価 ──
+    // メイン地震より後に発生した有感地震の数と、直近2時間の有感地震数を見る。
+    let aftershocks = 0, recent2h = 0, maxAfterScale = 0;
+    recentList.forEach(function(q){
+      if(q.t > best.t){ aftershocks++; maxAfterScale = Math.max(maxAfterScale, q.scale); }
+      if(q.t >= now - 2*3600000){ recent2h++; }
+    });
+    // 余震が活発か：メイン後の余震が3回以上、または直近2時間に2回以上の有感地震
+    const activeAftershock = (aftershocks >= 3) || (recent2h >= 2);
+
+    // ── 総合レベルの算出 ──
+    // 減衰の基準時間。余震が活発なら警戒を長めに維持する。
+    //   通常：6時間で1段階ずつ低下 / 余震活発時：12時間で1段階ずつ低下
+    const stepH = activeAftershock ? 12 : 6;
+    let decay = Math.floor(ageH / stepH);
+    let level = base - decay;
+
+    // 大地震（震度5弱以上）の当日(6時間以内)は、最低でもLv.2の注意体制を維持
+    if(base >= 3 && ageH <= 6 && level < 2) level = 2;
+    // 余震が今まさに活発なら、平常(Lv.1)までは下げない（最低Lv.2）
+    if(activeAftershock && base >= 3 && level < 2) level = 2;
+    if(level < 1) level = 1;
+    if(level > base) level = base;
+
+    // ── 表示 ──
     reading.textContent = '震度 ' + sh;
     let m = best.place;
     if(best.mag!=null && best.mag>=0) m += '／M' + best.mag;
+    // 経過時間と余震状況を添える
+    let ageTxt;
+    if(ageH < 1) ageTxt = Math.round(ageH*60) + '分前';
+    else ageTxt = Math.round(ageH) + '時間前';
+    m += '（' + ageTxt + '）';
+    if(aftershocks > 0) m += '・余震' + aftershocks + '回' + (activeAftershock ? '（活発）' : '');
     meta.textContent = m;
-    const lv = quakeScaleToLevel(best.scale);
-    dot.className = 'dot ' + (lv>=4?'bad':lv>=3?'warn':lv>=2?'warn':'ok');
-    _lastQuake = { level:lv, scale:best.scale, place:best.place, shindo:sh };
+
+    dot.className = 'dot ' + (level>=4?'bad':level>=3?'warn':level>=2?'warn':'ok');
+    _lastQuake = {
+      level:level, scale:best.scale, place:best.place, shindo:sh,
+      base:base, ageH:ageH, aftershocks:aftershocks, active:activeAftershock
+    };
   }catch(e){
     reading.textContent = '取得失敗';
     meta.textContent = '通信エラー：手動で気象庁の地震情報を確認してください';
@@ -315,8 +370,21 @@ async function loadTsunami(){
 function renderVerdict(){
   const w = weatherMaxLevel();
   const candidates = [];
-  if(_lastQuake)   candidates.push({ src:'地震', level:_lastQuake.level,
-      detail:_lastQuake.scale ? ('最大震度'+_lastQuake.shindo+'（'+_lastQuake.place+'）') : '震度1以上なし' });
+  if(_lastQuake){
+    let qd;
+    if(_lastQuake.scale){
+      qd = '最大震度'+_lastQuake.shindo+'（'+_lastQuake.place+'）';
+      // 経過で減衰している場合はその旨を添える
+      if(_lastQuake.base && _lastQuake.level < _lastQuake.base){
+        qd += '／発生から時間経過のため' + (_lastQuake.active ? '（余震活発・警戒継続）' : '減衰');
+      } else if(_lastQuake.active){
+        qd += '／余震活発';
+      }
+    } else {
+      qd = '震度1以上なし';
+    }
+    candidates.push({ src:'地震', level:_lastQuake.level, detail:qd });
+  }
   if(_lastTsunami) candidates.push({ src:'津波', level:_lastTsunami.level, detail:_lastTsunami.text });
   if(w.level>0)    candidates.push({ src:'気象', level:w.level, detail:w.reasons.join('、') });
 

@@ -151,6 +151,7 @@
 <footer>
   データ出典：P2P地震情報 API（気象庁発表に基づく地震・津波）、気象庁 防災情報。<br>
   判定基準は2026年5月再編後の気象庁・防災気象情報体系（特別警報＝レベル5相当／危険警報＝レベル4相当）に準拠。<br>
+  津波は気象庁発表の最新報のみで現況を判定（解除報に追随）。津波予報（若干の海面変動）は気象庁定義「被害の心配はありません」に基づきLv.1（表示のみ）。<br>
   本ツールはDWA防災情報センターの内部運用補助用です。
 </footer>
 
@@ -202,12 +203,14 @@ function scaleToShindoText(s){
 // ====== 津波 → DWAレベル ======
 function tsunamiToLevel(grade){
   // P2P tsunami: grade = MajorWarning(大津波警報)/Warning(警報)/Watch(注意報)/Forecast(予報)
+  // 気象庁定義：津波予報（若干の海面変動）は「被害の心配はありません」の
+  // 安心情報のため、対応レベルは平常(Lv.1)扱いで表示のみ行う。
   if(!grade) return { level:1, text:'発表なし' };
   const g = String(grade);
   if(g === 'MajorWarning') return { level:5, text:'大津波警報' };
   if(g === 'Warning')      return { level:4, text:'津波警報' };
   if(g === 'Watch')        return { level:3, text:'津波注意報' };
-  if(g === 'Forecast')     return { level:2, text:'津波予報（海面変動）' };
+  if(g === 'Forecast')     return { level:1, text:'津波予報（若干の海面変動・被害の心配なし）' };
   return { level:1, text:'発表なし' };
 }
 
@@ -343,20 +346,44 @@ async function loadTsunami(){
   const meta = document.getElementById('tsunamiMeta');
   try{
     const data = await fetchJSON('https://api.p2pquake.net/v2/jma/tsunami?limit=3', 9000);
-    let active = null;
-    (data||[]).forEach(function(item){
-      if(!item || item.cancelled) return;
-      if(active) return;
-      let maxGrade = null;
-      (item.areas||[]).forEach(function(a){
-        const order = {MajorWarning:4,Warning:3,Watch:2,Forecast:1};
-        if(!maxGrade || (order[a.grade]||0) > (order[maxGrade]||0)) maxGrade = a.grade;
-      });
-      if(maxGrade) active = maxGrade;
-    });
+    // ★現在の状態は「最新の1報」で判断する。
+    //   旧実装は解除報(cancelled)を読み飛ばして、その下にある古い発表報
+    //   （津波注意報など）を拾ってしまい、解除済みでもLv.3が出続けるバグがあった。
+    //   気象庁の運用では、津波警報・注意報の終了は必ず「解除」の報で通知される
+    //   ため、最新報が cancelled なら現況は「発表なし」で正しい。
+    let active = null, cancelledNow = false, issuedTxt = '';
+    const latest = (data && data.length) ? data[0] : null;
+    if (latest) {
+      const it = new Date(String(latest.time||'').replace(/\//g,'-').replace(' ','T')+'+09:00').getTime();
+      if (!isNaN(it)) {
+        const d = new Date(it);
+        issuedTxt = (d.getMonth()+1) + '/' + d.getDate() + ' '
+                  + ('0'+d.getHours()).slice(-2) + ':' + ('0'+d.getMinutes()).slice(-2) + '発表';
+      }
+      if (latest.cancelled) {
+        cancelledNow = true;   // 最新報が解除 → 現在は発表なし
+      } else {
+        // 鮮度ガード：48時間より古い「発表」報しか無い場合は現況扱いにしない
+        const fresh = !isNaN(it) && (Date.now() - it) <= 48*3600000;
+        if (fresh) {
+          let maxGrade = null;
+          (latest.areas||[]).forEach(function(a){
+            const order = {MajorWarning:4,Warning:3,Watch:2,Forecast:1};
+            if(!maxGrade || (order[a.grade]||0) > (order[maxGrade]||0)) maxGrade = a.grade;
+          });
+          active = maxGrade;
+        }
+      }
+    }
     const t = tsunamiToLevel(active);
     reading.textContent = t.text;
-    meta.textContent = active ? '津波情報が発表中です' : '現在、津波の心配はありません';
+    if (active) {
+      meta.textContent = '津波情報が発表中です' + (issuedTxt ? '（'+issuedTxt+'）' : '');
+    } else if (cancelledNow) {
+      meta.textContent = '解除済み（'+ (issuedTxt || '') +'）— 現在、津波の心配はありません';
+    } else {
+      meta.textContent = '現在、津波の心配はありません';
+    }
     dot.className = 'dot ' + (t.level>=5?'bad':t.level>=4?'bad':t.level>=3?'warn':t.level>=2?'warn':'ok');
     _lastTsunami = t;
   }catch(e){
